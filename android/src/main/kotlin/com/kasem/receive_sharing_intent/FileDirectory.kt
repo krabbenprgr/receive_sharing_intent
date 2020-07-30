@@ -14,6 +14,9 @@ import java.util.*
 import android.webkit.MimeTypeMap
 import android.content.ContentResolver
 import android.media.ThumbnailUtils
+import android.provider.OpenableColumns
+import androidx.annotation.NonNull
+import androidx.annotation.RequiresApi
 
 
 object FileDirectory {
@@ -27,6 +30,7 @@ object FileDirectory {
      * @param uri The Uri to query.
      * @author paulburke
      */
+    @RequiresApi(Build.VERSION_CODES.KITKAT)
     fun getAbsolutePath(context: Context, uri: Uri): String? {
 
         val isKitKat = Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT
@@ -92,15 +96,13 @@ object FileDirectory {
 
         if (uri.authority != null) {
             val mimeType = context.contentResolver.getType(uri)
-            val prefix = with(mimeType ?: "") {
-                when {
-                    startsWith("image") -> "IMG"
-                    startsWith("video") -> "VID"
-                    else -> "FILE"
-                }
-            }
+            val isImage = mimeType?.startsWith("image") == true
+            val prefix = if (isImage) "IMG" else "VID"
+            val filename = FileUtils.getFileName(uri, context)
             val type = MimeTypeMap.getSingleton().getExtensionFromMimeType(mimeType)
-            val targetFile = File(context.cacheDir, "${prefix}_${Date().time}.$type")
+            val targetFile = File(context.cacheDir, filename)
+
+            // val targetFile = File(context.cacheDir, "${prefix}_${Date().time}.$type")
             context.contentResolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(targetFile).use { fileOut ->
                     input.copyTo(fileOut)
@@ -149,4 +151,26 @@ object FileDirectory {
     fun isMediaDocument(uri: Uri): Boolean {
         return "com.android.providers.media.documents" == uri.authority
     }
+    object FileUtils {
+
+        fun getFileName(uri: Uri, context: Context): String? = when (uri.scheme) {
+            ContentResolver.SCHEME_FILE -> File(uri.path).name
+            ContentResolver.SCHEME_CONTENT -> context.getCursorContent(uri)
+            else -> null
+        }
+
+        private fun Context.getCursorContent(uri: Uri): String? = try {
+            contentResolver.query(uri, null, null, null, null)?.let { cursor ->
+                cursor.run {
+                    if (moveToFirst()) getString(getColumnIndex(OpenableColumns.DISPLAY_NAME))
+                    else null
+                }.also { cursor.close() }
+            }
+        } catch (e: Exception) {
+            null
+        }
+
+    }
+
+
 }
